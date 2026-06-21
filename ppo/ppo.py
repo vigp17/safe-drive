@@ -52,7 +52,11 @@ class ActorCritic(nn.Module):
     ):
         features = self.shared(x)
         mean = self.actor_mean(features)
-        std = self.actor_log_std.exp().expand_as(mean)
+        # Clamp log_std: in the first run this was unbounded and entropy
+        # climbed from 2.8 -> 6.3 over training (policy got MORE random,
+        # not less). Range [-5, 0.5] keeps std in ~[0.007, 1.65].
+        log_std = self.actor_log_std.clamp(-5.0, 0.5)
+        std = log_std.exp().expand_as(mean)
         dist = Normal(mean, std)
 
         if action is None:

@@ -11,14 +11,18 @@ env:
   decision_repeat: 5
 
 ppo:
-  total_steps: 5_000_000
-  num_envs: 64             # AWS: 64  |  local test: overridden to 4
+  total_steps: 10_000_000
+  num_envs: 16             # PER SEED. sweep.py runs 1 seed/GPU, so on the
+                           # 4-GPU g4dn.12xlarge that's 4 x 16 = 64 envs over
+                           # 48 vCPUs. Do NOT set to 64 here — that becomes
+                           # 4 x 64 = 256 envs and chokes the CPUs.
   rollout_steps: 512       # steps collected per env per update
   lr: 3.0e-4
   gamma: 0.99
   gae_lambda: 0.95
   clip_coef: 0.2
-  ent_coef: 0.01
+  ent_coef: 0.001     # was 0.01 — too high, fought against the policy ever
+                      # sharpening (entropy grew 2.8 -> 6.3 over training)
   vf_coef: 0.5
   max_grad_norm: 0.5
   update_epochs: 10

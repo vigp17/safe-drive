@@ -55,11 +55,19 @@ def main():
     parser.add_argument("--full", action="store_true",
                         help="Full training run with W&B logging")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--steps", type=int, default=None,
+                        help="Override total_steps from config (for quick validation runs)")
     parser.add_argument("--no-wandb", action="store_true")
+    parser.add_argument("--resume", action="store_true",
+                        help="Resume from the latest checkpoint for this seed "
+                             "(for Spot instances that may be interrupted)")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
     use_wandb = args.full and not args.no_wandb
+
+    if args.steps is not None:
+        cfg["ppo"]["total_steps"] = args.steps
 
     # ── Smoke test overrides ──────────────────────────────────────
     if args.test:
@@ -139,8 +147,31 @@ def main():
     ep_returns, ep_lengths = [], []
     ep_return = np.zeros(num_envs)
     ep_length = np.zeros(num_envs, dtype=int)
-    ckpt_dir = Path("checkpoints")
-    ckpt_dir.mkdir(exist_ok=True)
+    # checkpoints/seed_N/ — was a single shared "checkpoints/" path before,
+    # which meant every parallel seed in the sweep overwrote the others'
+    # checkpoints. Each seed now gets its own subdirectory.
+    ckpt_dir = Path(f"checkpoints/seed_{args.seed}")
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    # --resume: for Spot instances, which AWS can reclaim mid-run with a
+    # 2-minute warning. If a checkpoint already exists for this seed, reload
+    # weights + optimizer and continue from that step. PPO is on-policy, so
+    # there's no replay buffer to restore — collecting fresh rollouts from
+    # here is correct.
+    if args.resume:
+        existing = sorted(
+            ckpt_dir.glob("ppo_step*.pt"),
+            key=lambda p: int(p.stem.replace("ppo_step", "")),
+        )
+        if existing:
+            latest = existing[-1]
+            agent.load(str(latest))
+            global_step = int(latest.stem.replace("ppo_step", ""))
+            print(f"[RESUME] Loaded {latest}, continuing from step {global_step:,}")
+        else:
+            print("[RESUME] No checkpoint found for this seed — starting fresh.")
+
+    start_step = global_step      # for correct SPS after a resume
     start_time = time.time()
 
     print(f"Starting training | total_steps={total_steps:,} | batch_size={batch_size:,}")
@@ -198,7 +229,7 @@ def main():
         )
 
         update += 1
-        sps = global_step / (time.time() - start_time)
+        sps = (global_step - start_step) / (time.time() - start_time)
 
         # Logging
         if update % cfg["logging"]["log_interval"] == 0:

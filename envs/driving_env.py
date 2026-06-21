@@ -77,14 +77,19 @@ class DrivingEnv(gym.Env):
     def _shape_reward(self, reward: float, info: dict, crashed: bool) -> float:
         """
         On top of MetaDrive's default reward (speed + progress):
-          -5.0  on crash
-          +10.0 on reaching destination
+          -0.05 per step  — discourages "driving forever without finishing"
+                            (root cause of 0% arrival in the first run: episodes
+                            could rack up large reward just by surviving long,
+                            with no cost for never reaching the destination)
+          -15.0  on crash  — was -5.0, too cheap relative to ~250 episode reward
+          +200.0 on reaching destination — was +10.0 (~4% of episode reward,
+                            not enough to outweigh "just keep driving")
         """
-        r = reward
+        r = reward - 0.05
         if crashed:
-            r -= 5.0
+            r -= 15.0
         if info.get("arrive_dest", False):
-            r += 10.0
+            r += 200.0
         return float(r)
 
     def close(self):

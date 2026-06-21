@@ -59,7 +59,13 @@ def run_episode(env: DrivingEnv, agent: PPOAgent, device: torch.device, max_step
     for _ in range(max_steps):
         obs_t = torch.FloatTensor(obs).unsqueeze(0).to(device)
         with torch.no_grad():
-            action, _, _, _ = agent.net.get_action_and_value(obs_t)
+            # Deterministic eval: use the mean action, not a sampled one.
+            # Sampling (the old behavior) injects policy-std noise into
+            # every eval step, which understates a trained policy's real
+            # performance — especially relevant here since std had grown
+            # large due to the unclamped log_std bug (now fixed).
+            features = agent.net.shared(obs_t)
+            action = agent.net.actor_mean(features)
         act_np = action.cpu().numpy()[0].clip(-1.0, 1.0)
 
         obs, reward, terminated, truncated, info = env.step(act_np)
