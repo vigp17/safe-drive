@@ -21,7 +21,8 @@ class DrivingEnv(gym.Env):
 
     metadata = {"render_modes": ["rgb_array"]}
 
-    def __init__(self, config: dict = None, render_mode: str = None):
+    def __init__(self, config: dict = None, reward_config: dict = None,
+                 render_mode: str = None):
         base_config = {
             "use_render": False,         # no display window
             "num_scenarios": 100,        # procedural map pool size
@@ -38,6 +39,15 @@ class DrivingEnv(gym.Env):
         self.observation_space = self._env.observation_space
         self.action_space = self._env.action_space
         self.render_mode = render_mode
+
+        # Reward weights (config-driven so the validation loop is a YAML edit,
+        # not a code change). These DOMINATE MetaDrive's small internal
+        # penalties, giving us clear control of the safety/goal tradeoff.
+        rc = reward_config or {}
+        self.w_crash       = float(rc.get("crash_penalty", 80.0))
+        self.w_out_of_road = float(rc.get("out_of_road_penalty", 40.0))
+        self.w_success     = float(rc.get("success_bonus", 200.0))
+        self.w_completion  = float(rc.get("completion_bonus", 50.0))
 
         # Episode-level safety tracking
         self._ep_crashes = 0
@@ -77,28 +87,30 @@ class DrivingEnv(gym.Env):
     def _shape_reward(self, reward: float, info: dict, crashed: bool,
                       terminated: bool, truncated: bool) -> float:
         """
-        On top of MetaDrive's dense reward (progress + speed, which already
-        includes its own out-of-road penalty):
-          -15.0   on crash
-          +200.0  on reaching the destination (the jackpot — was +10.0, only
-                  ~4% of episode reward, which is why arrival rate was 0%)
-          +30.0 * route_completion  at episode end
+        Effective reward = MetaDrive dense progress reward + the explicit
+        terminal shaping below. The explicit terms are sized to DOMINATE
+        MetaDrive's small internal penalties, so we control the safety/goal
+        tradeoff directly. All magnitudes come from the config (reward_config).
 
-        The completion bonus replaces the flat per-step time penalty used in
-        the previous version. A per-step penalty can backfire: if leaving the
-        road ends the episode and stops the penalty, the agent can learn to
-        drive off early to "stop the bleeding." Rewarding route_completion at
-        episode end instead pulls the agent toward the goal with no such
-        perverse incentive — ending early means low completion means a small
-        bonus.
+        Defaults:
+          crash:        -80   (was -15 — too weak. The agent earned ~76 net
+                               reward *while crashing*, so "rush and crash" was
+                               profitable. -80 makes a crash clearly net-negative.)
+          out_of_road:  -40   (explicit now; leaving the road is a real failure)
+          arrival:     +200   (the jackpot)
+          completion:  +50 * route_completion at episode end  (rewards getting
+                               close; no perverse early-exit incentive, since
+                               ending early = low completion = small bonus)
         """
         r = float(reward)
         if crashed:
-            r -= 15.0
+            r -= self.w_crash
+        elif info.get("out_of_road", False):   # exclusive of crash
+            r -= self.w_out_of_road
         if info.get("arrive_dest", False):
-            r += 200.0
+            r += self.w_success
         if terminated or truncated:
-            r += 30.0 * float(info.get("route_completion", 0.0))
+            r += self.w_completion * float(info.get("route_completion", 0.0))
         return r
 
     def close(self):

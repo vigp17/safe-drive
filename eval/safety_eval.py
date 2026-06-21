@@ -173,11 +173,28 @@ def main():
                         help="Episodes on training seed range (seeds 0–N)")
     parser.add_argument("--n-heldout", type=int, default=20,
                         help="Episodes on held-out seed range (seeds 500–500+N)")
+    # Difficulty overrides — MUST match the difficulty the agent trained on,
+    # otherwise the KPIs are measured on a different problem than was learned.
+    parser.add_argument("--traffic-density", type=float, default=None,
+                        help="Override env traffic_density (match training)")
+    parser.add_argument("--map", type=int, default=None,
+                        help="Override env map complexity (match training)")
+    parser.add_argument("--num-scenarios", type=int, default=None,
+                        help="Override env num_scenarios (match training)")
     args = parser.parse_args()
 
     cfg = yaml.safe_load(open(args.config))
     env_config = cfg["env"]
     env_config["use_render"] = False
+
+    if args.traffic_density is not None:
+        env_config["traffic_density"] = args.traffic_density
+    if args.map is not None:
+        env_config["map"] = args.map
+    if args.num_scenarios is not None:
+        env_config["num_scenarios"] = args.num_scenarios
+    print(f"[eval difficulty] traffic_density={env_config['traffic_density']} "
+          f"map={env_config['map']} num_scenarios={env_config['num_scenarios']}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")

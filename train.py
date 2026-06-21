@@ -29,12 +29,12 @@ from ppo.ppo import PPOAgent
 # Helpers
 # ------------------------------------------------------------------
 
-def make_env(env_config: dict, seed: int):
+def make_env(env_config: dict, reward_config: dict, seed: int):
     """Factory for vectorised env creation."""
     def _init():
         cfg = dict(env_config)
         cfg["start_seed"] = seed
-        return DrivingEnv(config=cfg)
+        return DrivingEnv(config=cfg, reward_config=reward_config)
     return _init
 
 
@@ -61,6 +61,14 @@ def main():
     parser.add_argument("--resume", action="store_true",
                         help="Resume from the latest checkpoint for this seed "
                              "(for Spot instances that may be interrupted)")
+    # Difficulty overrides — let the validation loop and the curriculum
+    # orchestrator set difficulty from the CLI without editing the config.
+    parser.add_argument("--traffic-density", type=float, default=None,
+                        help="Override env traffic_density (e.g. 0.0 for easy validation)")
+    parser.add_argument("--map", type=int, default=None,
+                        help="Override env map complexity / number of blocks")
+    parser.add_argument("--num-scenarios", type=int, default=None,
+                        help="Override env num_scenarios (procedural map pool size)")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -68,6 +76,14 @@ def main():
 
     if args.steps is not None:
         cfg["ppo"]["total_steps"] = args.steps
+
+    # ── Difficulty overrides (validation / curriculum) ────────────
+    if args.traffic_density is not None:
+        cfg["env"]["traffic_density"] = args.traffic_density
+    if args.map is not None:
+        cfg["env"]["map"] = args.map
+    if args.num_scenarios is not None:
+        cfg["env"]["num_scenarios"] = args.num_scenarios
 
     # ── Smoke test overrides ──────────────────────────────────────
     if args.test:
@@ -99,8 +115,9 @@ def main():
     #   num_envs == 1  -> SyncVectorEnv  (single instance, single process)
     #   num_envs  > 1  -> AsyncVectorEnv (each env in its own subprocess)
     VecEnv = SyncVectorEnv if num_envs == 1 else AsyncVectorEnv
+    reward_config = cfg.get("reward", {})
     envs = VecEnv([
-        make_env(cfg["env"], seed=args.seed * 1000 + i)
+        make_env(cfg["env"], reward_config, seed=args.seed * 1000 + i)
         for i in range(num_envs)
     ])
 

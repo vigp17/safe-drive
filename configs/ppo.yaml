@@ -10,6 +10,18 @@ env:
   accident_prob: 0.0
   decision_repeat: 5
 
+# Reward v2 — these DOMINATE MetaDrive's small internal penalties so the
+# safety/goal tradeoff is under our explicit control. Tune these in the
+# validation loop (a YAML edit, no code change). Diagnosis that drove the
+# rebalance: with crash_penalty=15 the agent earned ~76 reward *while
+# crashing*, so "rush and crash" was net-positive. These values make a
+# crash clearly net-negative while keeping arrival the dominant payoff.
+reward:
+  crash_penalty: 80.0         # was 15.0 — too weak
+  out_of_road_penalty: 40.0   # explicit now (leaving the road is a real failure)
+  success_bonus: 200.0        # the jackpot
+  completion_bonus: 50.0      # x route_completion at episode end
+
 ppo:
   total_steps: 10_000_000
   num_envs: 16             # PER SEED. sweep.py runs 1 seed/GPU, so on the
