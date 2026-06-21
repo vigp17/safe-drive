@@ -15,11 +15,18 @@ import os
 import subprocess
 import sys
 import time
+import argparse
 
 import torch
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--curriculum", action="store_true",
+                        help="Run the phased easy->medium->hard curriculum per "
+                             "seed (curriculum.py) instead of flat training")
+    args = parser.parse_args()
+
     # Detect GPU count at runtime instead of hardcoding it. The original
     # version hardcoded n_gpus=8 for an 8x V100 box; when run on a 4-GPU
     # box it still launched 8 processes, and seeds 4-7 silently fell back
@@ -35,17 +42,25 @@ def main():
     seeds = list(range(n_gpus))
     procs = []
 
-    print(f"Detected {n_gpus} GPU(s). Launching {n_gpus} seeds, one per GPU...")
+    mode = "phased curriculum" if args.curriculum else "flat training"
+    print(f"Detected {n_gpus} GPU(s). Launching {n_gpus} seeds ({mode}), one per GPU...")
 
     for seed in seeds:
-        cmd = [
-            sys.executable, "train.py",
-            "--full",
-            "--seed", str(seed),
-            "--resume",   # Spot-safe: if relaunched after an interruption,
-                          # each seed continues from its latest checkpoint
-                          # (no-op on a fresh run with no checkpoints).
-        ]
+        if args.curriculum:
+            # curriculum.py inherits CUDA_VISIBLE_DEVICES from this env (set
+            # below) and does NOT re-pin (no --gpu passed), so its train.py
+            # subprocesses see exactly the one GPU we assign here. Passing
+            # --gpu here too would double-restrict and hide the GPU.
+            cmd = [sys.executable, "curriculum.py", "--seed", str(seed)]
+        else:
+            cmd = [
+                sys.executable, "train.py",
+                "--full",
+                "--seed", str(seed),
+                "--resume",   # Spot-safe: if relaunched after an interruption,
+                              # each seed continues from its latest checkpoint
+                              # (no-op on a fresh run with no checkpoints).
+            ]
         proc_env = os.environ.copy()
         proc_env["CUDA_VISIBLE_DEVICES"] = str(seed)
 
@@ -61,7 +76,7 @@ def main():
         status = "OK" if ret == 0 else f"FAILED (code {ret})"
         print(f"  Seed {seed}: {status}")
 
-    print("\nSweep complete. Check W&B for aggregated results.")
+    print("\nSweep complete.")
     print("Checkpoints are in checkpoints/seed_<N>/ for each seed.")
 
 
