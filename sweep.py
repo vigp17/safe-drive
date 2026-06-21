@@ -42,6 +42,9 @@ def main():
             sys.executable, "train.py",
             "--full",
             "--seed", str(seed),
+            "--resume",   # Spot-safe: if relaunched after an interruption,
+                          # each seed continues from its latest checkpoint
+                          # (no-op on a fresh run with no checkpoints).
         ]
         proc_env = os.environ.copy()
         proc_env["CUDA_VISIBLE_DEVICES"] = str(seed)

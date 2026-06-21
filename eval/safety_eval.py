@@ -33,11 +33,19 @@ from ppo.ppo import PPOAgent
 
 def estimate_ttc(obs: np.ndarray, speed: float, lidar_range: float = 50.0) -> float:
     """
-    Rough TTC from the first 240 lidar channels.
-    Real V&V would use radar/camera fusion; this gives a proxy.
+    APPROXIMATE time-to-collision proxy from the lidar block.
+
+    NOTE: this is a coarse proxy, not a validated safety metric. In MetaDrive
+    the 240-point lidar block sits at the END of the observation vector (the
+    front of the vector is ego state + navigation), so we slice obs[-240:],
+    not obs[:240] as the first version did. The forward sector indices are
+    still approximate. Treat collision rate / route completion / arrival
+    (all read from MetaDrive's ground-truth info dict) as the authoritative
+    safety numbers; report TTC only as a labelled approximation.
     """
-    lidar = obs[:240]
-    # Forward sector: channels roughly covering ±30° ahead
+    lidar = obs[-240:]
+    # Forward sector: lidar points are arranged around the vehicle; the
+    # middle of the block is roughly straight ahead.
     forward = lidar[100:140]
     min_dist = float(np.min(forward)) * lidar_range  # normalised → metres
     if speed < 0.5:

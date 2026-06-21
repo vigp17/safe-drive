@@ -207,25 +207,28 @@ def main():
             obs = torch.FloatTensor(next_obs_np).to(device)
             global_step += num_envs
 
-        # Bootstrap value
+        # Bootstrap value — PER ENV (N,), not a scalar mean. The old
+        # .mean() collapsed all envs to one number, which is wrong for
+        # per-env GAE.
         with torch.no_grad():
-            next_val = agent.net.get_value(obs).squeeze(-1).mean()
+            next_val = agent.net.get_value(obs).squeeze(-1)   # (N,)
 
-        # GAE
+        # GAE on the (T, N) buffers — each env treated as its own trajectory.
         advantages, returns = agent.compute_gae(
-            rew_buf.view(-1),
-            val_buf.view(-1),
-            done_buf.view(-1),
+            rew_buf,
+            val_buf,
+            done_buf,
             next_val,
         )
 
-        # PPO update
+        # Flatten ONLY for the minibatch update (order within the flatten
+        # doesn't matter there — minibatches are randomly shuffled anyway).
         metrics = agent.update(
-            obs_buf.view(batch_size, obs_dim),
-            act_buf.view(batch_size, act_dim),
-            logp_buf.view(batch_size),
-            returns,
-            advantages,
+            obs_buf.reshape(batch_size, obs_dim),
+            act_buf.reshape(batch_size, act_dim),
+            logp_buf.reshape(batch_size),
+            returns.reshape(batch_size),
+            advantages.reshape(batch_size),
         )
 
         update += 1

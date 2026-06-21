@@ -66,7 +66,7 @@ class DrivingEnv(gym.Env):
         if crashed:
             self._ep_crashes += 1
 
-        shaped = self._shape_reward(reward, info, crashed)
+        shaped = self._shape_reward(reward, info, crashed, terminated, truncated)
 
         # Inject safety KPIs into info for logging
         info["ep_collision_rate"] = self._ep_crashes / max(1, self._ep_steps)
@@ -74,23 +74,32 @@ class DrivingEnv(gym.Env):
 
         return obs, shaped, terminated, truncated, info
 
-    def _shape_reward(self, reward: float, info: dict, crashed: bool) -> float:
+    def _shape_reward(self, reward: float, info: dict, crashed: bool,
+                      terminated: bool, truncated: bool) -> float:
         """
-        On top of MetaDrive's default reward (speed + progress):
-          -0.05 per step  — discourages "driving forever without finishing"
-                            (root cause of 0% arrival in the first run: episodes
-                            could rack up large reward just by surviving long,
-                            with no cost for never reaching the destination)
-          -15.0  on crash  — was -5.0, too cheap relative to ~250 episode reward
-          +200.0 on reaching destination — was +10.0 (~4% of episode reward,
-                            not enough to outweigh "just keep driving")
+        On top of MetaDrive's dense reward (progress + speed, which already
+        includes its own out-of-road penalty):
+          -15.0   on crash
+          +200.0  on reaching the destination (the jackpot — was +10.0, only
+                  ~4% of episode reward, which is why arrival rate was 0%)
+          +30.0 * route_completion  at episode end
+
+        The completion bonus replaces the flat per-step time penalty used in
+        the previous version. A per-step penalty can backfire: if leaving the
+        road ends the episode and stops the penalty, the agent can learn to
+        drive off early to "stop the bleeding." Rewarding route_completion at
+        episode end instead pulls the agent toward the goal with no such
+        perverse incentive — ending early means low completion means a small
+        bonus.
         """
-        r = reward - 0.05
+        r = float(reward)
         if crashed:
             r -= 15.0
         if info.get("arrive_dest", False):
             r += 200.0
-        return float(r)
+        if terminated or truncated:
+            r += 30.0 * float(info.get("route_completion", 0.0))
+        return r
 
     def close(self):
         self._env.close()

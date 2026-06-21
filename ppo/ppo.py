@@ -106,19 +106,28 @@ class PPOAgent:
     # ------------------------------------------------------------------
     def compute_gae(
         self,
-        rewards: torch.Tensor,   # (T,)
-        values: torch.Tensor,    # (T,)
-        dones: torch.Tensor,     # (T,)
-        next_value: torch.Tensor,  # scalar
+        rewards: torch.Tensor,     # (T, N)
+        values: torch.Tensor,      # (T, N)
+        dones: torch.Tensor,       # (T, N)
+        next_value: torch.Tensor,  # (N,)  — per-env bootstrap value
     ):
-        """Generalized Advantage Estimation (backwards pass)."""
-        T = rewards.shape[0]
-        advantages = torch.zeros(T, device=self.device)
-        last_gae = 0.0
+        """
+        Generalized Advantage Estimation, computed PER ENVIRONMENT along the
+        time axis.
+
+        Previous version flattened (T, N) -> (T*N,) and ran a single backward
+        pass, which bootstrapped each step from the NEXT env at the same
+        timestep (row-major neighbour) instead of the next timestep of the
+        SAME env. That silently corrupted advantages. This version keeps the
+        (T, N) shape so each column (env) is its own trajectory.
+        """
+        T, N = rewards.shape
+        advantages = torch.zeros(T, N, device=self.device)
+        last_gae = torch.zeros(N, device=self.device)
 
         for t in reversed(range(T)):
-            nv = next_value if t == T - 1 else values[t + 1]
-            mask = 1.0 - dones[t]
+            nv = next_value if t == T - 1 else values[t + 1]   # (N,)
+            mask = 1.0 - dones[t]                              # (N,)
             delta = rewards[t] + self.gamma * nv * mask - values[t]
             last_gae = delta + self.gamma * self.gae_lambda * mask * last_gae
             advantages[t] = last_gae
