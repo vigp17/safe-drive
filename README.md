@@ -12,6 +12,10 @@ The point of this project is not a superhuman agent. It is a correct, reproducib
 
 The agent was trained through a three-stage curriculum (easy → medium → hard) and evaluated against two baselines — a random-action floor and MetaDrive's built-in rule-based IDM driver — across all three difficulties, on both training-distribution and held-out (unseen) scenarios, over four seeds.
 
+> Seed 1 (flagship) driving four easy scenarios — two clean arrivals, one near-miss, one off-road. Competent but imperfect, exactly as the numbers say.
+
+![Demo: the trained agent driving (top-down)](results/demo.gif)
+
 ![Random vs PPO vs IDM across difficulty](results/baseline_comparison.png)
 
 **The finding worth stating plainly:** the rule-based IDM controller dominates in easy and moderate traffic, but **collapses in dense traffic — 90% collision rate on the hard setting.** The learned PPO agent is weaker in absolute terms everywhere, but **degrades far more gracefully: it crashes ~43% of the time on hard versus IDM's 90%.** Learned control traded peak performance for robustness to conditions outside the comfort zone of a simple car-following model. That trade-off — not a leaderboard number — is the result.
@@ -153,7 +157,9 @@ policy = torch.jit.load("results/policy_seed1.ts.pt")
 action = policy(obs)          # obs: (batch, 259) float32  ->  (batch, 2) in [-1, 1]
 ```
 
-A short top-down clip of the flagship seed driving:
+A short top-down clip of the flagship seed driving (regenerate with the command below):
+
+![Demo: the trained agent driving (top-down)](results/demo.gif)
 
 ```bash
 python demo/render_demo.py --checkpoint checkpoints/seed_1/ppo_final.pt
